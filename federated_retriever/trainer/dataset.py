@@ -37,7 +37,6 @@ class FederatedTrainDataset(TrainDataset):
                 partitioners={"train": num_partitions},
             )
             .load_partition(partition_id)
-            .load_split(data_args.dataset_split)
         )
 
     def _filter_dataset_to_subset(self, dataset: DatasetDict, subset: str):
