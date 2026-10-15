@@ -1,0 +1,60 @@
+[project]
+name = "federated-retriever-learning"
+version = "0.1.0"
+requires-python = ">=3.11, <3.12"
+dependencies = [
+    "flwr[simulation]==1.40.0",
+    "flwr-datasets==0.6.1",
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "transformers==5.19.0",
+    "evaluate==0.4.6",
+    "datasets==4.8.5",
+    "faiss-gpu==1.15.1",
+    "tevatron",
+]
+
+[tool.uv.sources]
+tevatron = { git = "https://github.com/texttron/tevatron", rev = "dd063104c81a76d6a77c845f667b46b9e5abd625" }
+
+[tool.flwr.app]
+publisher = "flwrlabs"
+fab-format-version = 1
+flwr-version-target = "1.36.0"
+
+[tool.flwr.app.components]
+serverapp = "src.federated_retriever.server:server_app"
+clientapp = "src.federated_retriever.client:client_app"
+
+[tool.flwr.app.config]
+fraction-train = 1.0
+fraction-evaluate = 1.0
+num-server-rounds = 1
+subsets = ["arguana", "fever", "fiqa", "hotpotqa", "msmarco-passage", "nq", "scidocsrr"]
+model_name_or_path="intfloat/e5-small-unsupervised"
+attn_implementation = "sdpa"
+bf16 = true
+pooling = "mean"
+normalize = true
+query_prefix = "query: "
+passage_prefix = "passage: "
+dataset_name = "rlhn/rlhn-680K"
+query_max_len = 64
+passage_max_len = 192
+train_group_size = 8
+per_device_train_batch_size = 256
+gradient_accumulation_steps = 1
+learning_rate = 2e-5
+temperature = 0.01
+num_train_epochs = 5
+logging_steps = 20
+save_strategy = "steps"
+save_total_limit = 5
+report_to = "wandb"
+seed = 42
+weight_decay = 0.01
+warmup_steps = 0.1
+gradient_checkpointing = true
+dataloader_num_workers = 8 
+max_steps = 10000
+save_steps = 2000
