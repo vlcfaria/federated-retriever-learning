@@ -1,9 +1,11 @@
 [project]
 name = "federated-retriever-learning"
 version = "0.1.0"
+description = "Federated retriever learning with Tevatron and Flower"
 requires-python = ">=3.11, <3.12"
+license = { file = "LICENSE" }
 dependencies = [
-    "flwr[simulation]==1.40.0",
+    "flwr[simulation]>=1.40.0",
     "flwr-datasets==0.6.1",
     "torch==2.14.1",
     "torchvision==0.29.1",
@@ -12,6 +14,7 @@ dependencies = [
     "datasets==4.8.5",
     "faiss-gpu==1.15.1",
     "tevatron",
+    "wandb",
 ]
 
 [tool.uv.sources]
@@ -20,17 +23,18 @@ tevatron = { git = "https://github.com/texttron/tevatron", rev = "dd063104c81a76
 [tool.flwr.app]
 publisher = "flwrlabs"
 fab-format-version = 1
-flwr-version-target = "1.36.0"
+flwr-version-target = "1.40.0"
 
 [tool.flwr.app.components]
-serverapp = "src.federated_retriever.server:server_app"
-clientapp = "src.federated_retriever.client:client_app"
+serverapp = "federated_retriever.server:server_app"
+clientapp = "federated_retriever.client:app"
 
 [tool.flwr.app.config]
 fraction-train = 1.0
-fraction-evaluate = 1.0
+fraction-evaluate = 0.0
 num-server-rounds = 1
-subsets = ["arguana", "fever", "fiqa", "hotpotqa", "msmarco-passage", "nq", "scidocsrr"]
+save-model = false
+subsets = "arguana,fever,fiqa,hotpotqa,msmarco-passage,nq,scidocsrr"
 model_name_or_path="intfloat/e5-small-unsupervised"
 attn_implementation = "sdpa"
 bf16 = true
@@ -38,7 +42,7 @@ pooling = "mean"
 normalize = true
 query_prefix = "query: "
 passage_prefix = "passage: "
-dataset_name = "rlhn/rlhn-680K"
+dataset_name = "rlhn/rlhn-250K"
 query_max_len = 64
 passage_max_len = 192
 train_group_size = 8

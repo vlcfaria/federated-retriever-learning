@@ -1,5 +1,5 @@
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context
+from flwr.app import ArrayRecord, Context
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 
@@ -11,7 +11,7 @@ server_app = ServerApp()
 
 @server_app.main()
 def main(grid: Grid, context: Context) -> None:
-    model_args, data_args, training_args = parse_config_args(context)
+    model_args, _, training_args = parse_config_args(context)
 
     model = FederatedDenseModel.build(
         model_args,
@@ -33,17 +33,10 @@ def main(grid: Grid, context: Context) -> None:
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
-        train_config=ConfigRecord(
-            {
-                "model_args": model_args,
-                "data_args": data_args,
-                "training_args": training_args,
-            }
-        ),
         num_rounds=num_rounds,
     )
 
-    if context.run_config["save-model"]:
+    if context.run_config.get("save-model", False):
         # Save final model to disk
         print("\nSaving final model to disk...")
         state_dict = result.arrays.to_torch_state_dict()

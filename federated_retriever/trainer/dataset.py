@@ -1,4 +1,4 @@
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict
 from flwr_datasets import FederatedDataset
 from tevatron.retriever.arguments import DataArguments
 from tevatron.retriever.dataset import TrainDataset

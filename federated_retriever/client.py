@@ -5,23 +5,29 @@ from tevatron.retriever.trainer import TevatronTrainer as Trainer
 
 from .trainer.dataset import FederatedTrainDataset
 from .trainer.federated_model import FederatedDenseModel
-from .utils import prep_model_kwargs, prep_tokenizer
+from .utils import parse_config_args, prep_model_kwargs, prep_tokenizer
 
 app = ClientApp()
+
+
+def _partition_info(context: Context) -> tuple[str, int, int]:
+    """Return this node's (subset, partition-id, num-partitions)."""
+    partition_id = context.node_config["partition-id"]
+    num_partitions = context.node_config["num-partitions"]
+    subsets = [
+        s.strip() for s in context.run_config["subsets"].split(",") if s.strip()
+    ]
+    subset = subsets[partition_id]
+    return subset, partition_id, num_partitions
 
 
 @app.train()
 def train(msg: Message, context: Context) -> Message:
     """Train the model on local data."""
 
-    # Prepare the dataset
-    subset = context.node_config["subset"]
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
-
-    data_args = msg.content["config"]["model_args"]
-    model_args = msg.content["config"]["model_args"]
-    training_args = msg.content["config"]["training_args"]
+    # Get this client's dataset partition
+    subset, partition_id, num_partitions = _partition_info(context)
+    model_args, data_args, training_args = parse_config_args(context)
 
     train_dataset = FederatedTrainDataset(
         subset, partition_id, num_partitions, data_args
@@ -35,6 +41,7 @@ def train(msg: Message, context: Context) -> Message:
         training_args,
         **prep_model_kwargs(model_args, training_args),
     )
+    # Initialize it with the received weights
     model.load_from_arrays(msg.content["arrays"])
 
     # Train!
@@ -60,16 +67,8 @@ def train(msg: Message, context: Context) -> Message:
 @app.evaluate()
 def evaluate(msg: Message, context: Context) -> Message:
     """Evaluate the model on local data."""
-    # TODO this is empty for now, eval is not trivial on IR
-
-    # Get this client's dataset partition
-    subset = context.node_config["subset"]
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
-
-    data_args = context.run_config["data_args"]
-    model_args = context.run_config["model_args"]
-    training_args = context.run_config["training_args"]
+    # TODO eval is not trivial on IR, dummy metrics for now
+    model_args, _, training_args = parse_config_args(context)
 
     model = FederatedDenseModel.build(
         model_args,
@@ -79,13 +78,8 @@ def evaluate(msg: Message, context: Context) -> Message:
     model.load_from_arrays(msg.content["arrays"])
 
     model_record = ArrayRecord(model.encoder_state_dict())
-    metrics = MetricRecord(
-        {
-            "num-examples": 500,
-            "loss": 0.0,
-            "accuracy": 1.0,
-        }
-    )
+    metrics = MetricRecord({"num-examples": 1, "loss": 0.0, "accuracy": 1.0})
+
     content = RecordDict({"arrays": model_record, "metrics": metrics})
 
     return Message(content=content, reply_to=msg)
