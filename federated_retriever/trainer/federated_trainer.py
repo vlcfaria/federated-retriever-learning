@@ -1,0 +1,167 @@
+import copy
+import gc
+import os
+import socket
+from logging import INFO
+
+import deepspeed
+import torch
+from flwr.common import log
+from tevatron.retriever.trainer import TevatronTrainer
+from transformers.integrations.deepspeed import HfTrainerDeepSpeedConfig
+
+_ENV_SET_BY_US = False
+
+
+def ensure_single_process_dist() -> None:
+    """Initialize a single-process process group for DeepSpeed if needed."""
+    global _ENV_SET_BY_US
+
+    if torch.distributed.is_initialized():
+        return
+
+    def free_port() -> str:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return str(sock.getsockname()[1])
+
+    if "LOCAL_RANK" not in os.environ:
+        os.environ.update(
+            LOCAL_RANK="0",
+            RANK="0",
+            WORLD_SIZE="1",
+            LOCAL_WORLD_SIZE="1",
+            MASTER_ADDR="127.0.0.1",
+            MASTER_PORT=free_port(),
+        )
+        _ENV_SET_BY_US = True
+    elif _ENV_SET_BY_US:
+        # A previous engine destroyed the process group; pick a fresh port.
+        os.environ["MASTER_PORT"] = free_port()
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
+
+    backend = "nccl" if torch.cuda.is_available() else "gloo"
+    torch.distributed.init_process_group(backend=backend)
+
+
+class FederatedTrainer(TevatronTrainer):
+    """Local DeepSpeed training loop for a single federated round."""
+
+    def __init__(
+        self,
+        *,
+        model,
+        args,
+        train_dataset,
+        data_collator,
+        ds_config=None,
+        **kwargs,
+    ):
+        if ds_config is None:
+            ds_config = getattr(args, "ds_config", None)
+        if ds_config is None:
+            raise ValueError("A DeepSpeed config must be provided via `deepspeed`.")
+
+        # HF Trainer must not create its own DeepSpeed plugin/Accelerator state.
+        # The engine is created explicitly in `train_local`.
+        trainer_args = copy.copy(args)
+        trainer_args.deepspeed = None
+        trainer_args.deepspeed_plugin = None
+        trainer_args.hf_deepspeed_config = None
+
+        super().__init__(
+            model=model,
+            args=trainer_args,
+            train_dataset=train_dataset,
+            data_collator=data_collator,
+            **kwargs,
+        )
+        self.ds_config = ds_config
+
+    def _resolve_ds_config(self, num_training_steps: int) -> dict:
+        hf_config = HfTrainerDeepSpeedConfig(self.ds_config)
+        hf_config.trainer_config_process(self.args)
+        hf_config.trainer_config_finalize(self.args, self.model, num_training_steps)
+        return hf_config.config
+
+    def train_local(self) -> tuple[dict[str, torch.Tensor], float]:
+        self.model.train()
+        if self.args.gradient_checkpointing:
+            self.model.gradient_checkpointing_enable()
+
+        dataloader = self.get_train_dataloader()
+        num_steps = self.args.max_steps
+        if num_steps is None or num_steps <= 0:
+            num_steps = len(dataloader) * max(1, int(self.args.num_train_epochs))
+
+        logging_steps = self.args.logging_steps
+        if isinstance(logging_steps, float) and 0 < logging_steps < 1:
+            logging_steps = max(1, int(logging_steps * num_steps))
+        else:
+            logging_steps = max(1, int(logging_steps))
+
+        label = getattr(self.train_dataset, "subset", "client")
+        partition_id = getattr(self.train_dataset, "partition_id", None)
+        if partition_id is not None:
+            label = f"{label}[{partition_id}]"
+        num_examples = len(self.train_dataset)
+
+        ensure_single_process_dist()
+
+        engine = None
+        try:
+            engine, _, _, _ = deepspeed.initialize(
+                model=self.model,
+                model_parameters=[
+                    p for p in self.model.parameters() if p.requires_grad
+                ],
+                config=self._resolve_ds_config(num_steps),
+            )
+
+            total_loss = 0.0
+            running_loss = 0.0
+            running_count = 0
+            steps_done = 0
+            while steps_done < num_steps:
+                for batch in dataloader:
+                    loss = self.compute_loss(engine, batch)
+                    loss_value = loss.detach().float().item()
+                    total_loss += loss_value
+                    running_loss += loss_value
+                    running_count += 1
+                    engine.backward(loss)
+                    engine.step()
+                    steps_done += 1
+
+                    if steps_done % logging_steps == 0 or steps_done >= num_steps:
+                        lr = (
+                            float(engine.get_lr()[0])
+                            if hasattr(engine, "get_lr")
+                            else self.args.learning_rate
+                        )
+                        log(
+                            INFO,
+                            "%s | n=%d | step %d/%d | loss %.4f | lr %.2e",
+                            label,
+                            num_examples,
+                            steps_done,
+                            num_steps,
+                            running_loss / max(1, running_count),
+                            lr,
+                        )
+                        running_loss = 0.0
+                        running_count = 0
+
+                    if steps_done >= num_steps:
+                        break
+
+            return engine.module.encoder_state_dict(), total_loss / max(1, steps_done)
+        finally:
+            if engine is not None and hasattr(engine, "destroy"):
+                engine.destroy()
+            del engine
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()

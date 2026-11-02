@@ -2,10 +2,10 @@ from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 from tevatron.retriever.checkpoint_validation import evaluate_group
 from tevatron.retriever.collator import TrainCollator
-from tevatron.retriever.trainer import TevatronTrainer as Trainer
 
 from .trainer.dataset import FederatedTrainDataset
 from .trainer.federated_model import FederatedDenseModel
+from .trainer.federated_trainer import FederatedTrainer
 from .utils import flatten_dict, parse_config_args, prep_model_kwargs, prep_tokenizer
 
 app = ClientApp()
@@ -17,10 +17,12 @@ def _partition_info(context: Context) -> tuple[str, int, int]:
     `partition_id` and `num_partitions` are subset localized.
     """
 
-    partition_id = context.node_config["partition-id"]
-    num_partitions = context.node_config["num-partitions"]
+    partition_id = int(context.node_config["partition-id"])
+    num_partitions = int(context.node_config["num-partitions"])
 
-    subsets = [s.strip() for s in context.run_config["subsets"].split(",") if s.strip()]
+    subsets = [
+        s.strip() for s in str(context.run_config["subsets"]).split(",") if s.strip()
+    ]
     subset = subsets[partition_id % len(subsets)]
 
     # num_partitions will indicate the number of partitions containing THIS subset
@@ -61,18 +63,19 @@ def train(msg: Message, context: Context) -> Message:
     model.load_from_arrays(msg.content["arrays"])
 
     # Train!
-    trainer = Trainer(
+    trainer = FederatedTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         data_collator=collator,
+        ds_config=training_args.ds_config,
     )
     train_dataset.set_trainer(trainer)
 
-    trainer.train()
+    encoder_state, train_loss = trainer.train_local()
 
     # Construct and return reply Message
-    model_record = ArrayRecord(model.encoder_state_dict())
+    model_record = ArrayRecord(encoder_state)
 
     if training_args.max_steps > 0:
         # TODO this is incorrect on multiple gpu scenarios
@@ -83,7 +86,9 @@ def train(msg: Message, context: Context) -> Message:
     else:
         training_examples = len(train_dataset)  # epoch-based
 
-    metrics = MetricRecord({"num-examples": training_examples})
+    metrics = MetricRecord(
+        {"num-examples": training_examples, "train/loss": train_loss}
+    )
 
     content = RecordDict({"arrays": model_record, "metrics": metrics})
 

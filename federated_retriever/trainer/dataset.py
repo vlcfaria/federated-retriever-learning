@@ -2,7 +2,6 @@ from datasets import DatasetDict
 from flwr_datasets import FederatedDataset
 from tevatron.retriever.arguments import DataArguments
 from tevatron.retriever.dataset import TrainDataset
-import os
 
 
 class FederatedTrainDataset(TrainDataset):

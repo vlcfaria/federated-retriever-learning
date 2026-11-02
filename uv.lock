@@ -1927,7 +1927,7 @@ wheels = [
 [[package]]
 name = "tevatron"
 version = "0.0.1"
-source = { git = "https://github.com/vlcfaria/tevatron?branch=main#d4dcf456d276c44a0c76f53b20ace597bf42e7d1" }
+source = { git = "https://github.com/vlcfaria/tevatron?branch=main#44b8448b4f3ed67dcac6b122b2a6687cb7e171c0" }
 dependencies = [
     { name = "datasets" },
     { name = "transformers" },

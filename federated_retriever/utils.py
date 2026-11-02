@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import torch
 from tevatron.retriever.arguments import (
@@ -58,9 +59,20 @@ def parse_config_args(context):
     )
 
     # TODO look into changing into a json config?
+    run_config = dict(context.run_config)
+    # Keep `deepspeed` out of TrainingArguments: its __post_init__ resets
+    # Accelerate state and would build a DeepSpeed PartialState that conflicts
+    # with the manually initialized engine.
+    ds_path = run_config.pop("deepspeed", None)
+    if isinstance(ds_path, str) and not os.path.isabs(ds_path):
+        candidate = Path(__file__).resolve().parents[1] / ds_path
+        if candidate.exists():
+            ds_path = str(candidate)
+
     model_args, data_args, training_args, validate_args = parser.parse_dict(
-        dict(context.run_config), allow_extra_keys=True
+        run_config, allow_extra_keys=True
     )
+    training_args.ds_config = ds_path
     model_args: ModelArguments
     data_args: DataArguments
     training_args: TrainingArguments
@@ -79,7 +91,7 @@ def parse_config_args(context):
     return model_args, data_args, training_args, validate_args
 
 
-def flatten_dict(dictionary: dict[str, any]):
+def flatten_dict(dictionary):
     """Flatten a dictionary by adding prefixing to keys"""
 
     ans = {}
