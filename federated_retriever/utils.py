@@ -1,7 +1,11 @@
 import os
 
 import torch
-from tevatron.retriever.arguments import DataArguments, ModelArguments
+from tevatron.retriever.arguments import (
+    DataArguments,
+    ModelArguments,
+    ValidateArguments,
+)
 from tevatron.retriever.arguments import TevatronTrainingArguments as TrainingArguments
 from transformers import AutoTokenizer, HfArgumentParser
 
@@ -49,15 +53,18 @@ def prep_model_kwargs(model_args, training_args):
 
 
 def parse_config_args(context):
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
+    parser = HfArgumentParser(
+        (ModelArguments, DataArguments, TrainingArguments, ValidateArguments)
+    )
 
     # TODO look into changing into a json config?
-    model_args, data_args, training_args = parser.parse_dict(
+    model_args, data_args, training_args, validate_args = parser.parse_dict(
         dict(context.run_config), allow_extra_keys=True
     )
     model_args: ModelArguments
     data_args: DataArguments
     training_args: TrainingArguments
+    validate_args: ValidateArguments
 
     if (
         os.path.exists(training_args.output_dir)
@@ -69,4 +76,21 @@ def parse_config_args(context):
             f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
         )
 
-    return model_args, data_args, training_args
+    return model_args, data_args, training_args, validate_args
+
+
+def flatten_dict(dictionary: dict[str, any]):
+    """Flatten a dictionary by adding prefixing to keys"""
+
+    ans = {}
+
+    for k, v in dictionary.items():
+        if isinstance(v, dict):
+            ans = ans | {
+                f"{k}/{k_nested}": v_nested
+                for k_nested, v_nested in flatten_dict(v).items()
+            }
+        else:
+            ans[k] = v
+
+    return ans

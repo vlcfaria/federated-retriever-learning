@@ -13,7 +13,7 @@ set -e
 
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 
-source ./sbatch/config.sh
+source ./script/config.sh
 
 mkdir -p "$RUN_DIR/search" "$RUN_DIR/eval/beir25" "$RUN_DIR/logs"
 

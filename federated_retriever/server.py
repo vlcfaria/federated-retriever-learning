@@ -11,7 +11,7 @@ server_app = ServerApp()
 
 @server_app.main()
 def main(grid: Grid, context: Context) -> None:
-    model_args, _, training_args = parse_config_args(context)
+    model_args, _, training_args, _ = parse_config_args(context)
 
     model = FederatedDenseModel.build(
         model_args,
@@ -24,8 +24,8 @@ def main(grid: Grid, context: Context) -> None:
     fraction_train = context.run_config["fraction-train"]
     fraction_evaluate = context.run_config["fraction-evaluate"]
     strategy = FedAvg(
-        fraction_train=fraction_train,
-        fraction_evaluate=fraction_evaluate,
+        fraction_train=float(fraction_train),
+        fraction_evaluate=float(fraction_evaluate),
     )
 
     num_rounds = context.run_config["num-server-rounds"]
@@ -33,7 +33,7 @@ def main(grid: Grid, context: Context) -> None:
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
-        num_rounds=num_rounds,
+        num_rounds=int(num_rounds),
     )
 
     if context.run_config.get("save-model", False):

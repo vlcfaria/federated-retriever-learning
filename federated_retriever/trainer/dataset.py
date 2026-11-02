@@ -2,6 +2,7 @@ from datasets import DatasetDict
 from flwr_datasets import FederatedDataset
 from tevatron.retriever.arguments import DataArguments
 from tevatron.retriever.dataset import TrainDataset
+import os
 
 
 class FederatedTrainDataset(TrainDataset):
@@ -20,7 +21,7 @@ class FederatedTrainDataset(TrainDataset):
         dataset_name=None,
     ):
         # Init the grandparent to avoid calling load_dataset inside `TrainDataset`'s init
-        super(TrainDataset, self).__init__()
+        super(TrainDataset).__init__()
 
         self.data_args = data_args
         self.trainer = trainer
@@ -28,16 +29,13 @@ class FederatedTrainDataset(TrainDataset):
         self.partition_id = partition_id
         self.num_partitions = num_partitions
 
-        self.train_data = (
-            FederatedDataset(
-                dataset=self.data_args.dataset_name
-                if dataset_name is None
-                else dataset_name,
-                preprocessor=lambda x: self._filter_dataset_to_subset(x, self.subset),
-                partitioners={"train": num_partitions},
-            )
-            .load_partition(partition_id)
-        )
+        self.train_data = FederatedDataset(
+            dataset=self.data_args.dataset_name
+            if dataset_name is None
+            else dataset_name,
+            preprocessor=lambda x: self._filter_dataset_to_subset(x, self.subset),
+            partitioners={"train": num_partitions},
+        ).load_partition(partition_id)
 
     def _filter_dataset_to_subset(self, dataset: DatasetDict, subset: str):
         return dataset.filter(lambda x: x["subset"] == subset)
