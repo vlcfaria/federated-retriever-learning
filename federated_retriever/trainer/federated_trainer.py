@@ -47,7 +47,10 @@ def ensure_single_process_dist() -> None:
 
 
 class FederatedTrainer(TevatronTrainer):
-    """Local DeepSpeed training loop for a single federated round."""
+    """Local DeepSpeed training loop for federated training rounds.
+
+    Preferred over TevatronTrainer since Deepspeed oddly trains better models than regular HF trainer in Tevatron
+    """
 
     def __init__(
         self,
@@ -64,8 +67,7 @@ class FederatedTrainer(TevatronTrainer):
         if ds_config is None:
             raise ValueError("A DeepSpeed config must be provided via `deepspeed`.")
 
-        # HF Trainer must not create its own DeepSpeed plugin/Accelerator state.
-        # The engine is created explicitly in `train_local`.
+        # Stop HF Trainer from creating its own DeepSpeed plugin/Accelerator state.
         trainer_args = copy.copy(args)
         trainer_args.deepspeed = None
         trainer_args.deepspeed_plugin = None
