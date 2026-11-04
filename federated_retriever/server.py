@@ -37,6 +37,9 @@ def main(grid: Grid, context: Context) -> None:
         total_steps=total_steps,
         warmup_steps=warmup_steps,
         eval_interval=int(context.run_config["eval-interval"] or 1),
+        project_name=str(context.run_config["project-name"]),
+        run_name=str(context.run_config["run-name"]),
+        config=context.run_config,
     )
 
     # Start the strategy

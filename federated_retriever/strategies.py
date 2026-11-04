@@ -1,9 +1,9 @@
 from flwr.serverapp.strategy import FedAvg
 
+import wandb
+
 
 class LRScheduleMixin:
-    """Mixin for allowing linear decay/warmup LR for strategies"""
-
     def __init__(
         self, *args, base_lr, steps_per_round, total_steps, warmup_steps, **kwargs
     ):
@@ -47,5 +47,39 @@ class PeriodicEvaluationStrategyMixin:
         return super().configure_evaluate(server_round, *args, **kw)
 
 
-class ScheduledFedAvg(PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedAvg):
+class WandbStrategyMixin:
+    def __init__(self, *args, project_name: str, run_name: str, config: dict, **kwargs):
+        super().__init__(*args, **kwargs)
+        wandb.init(project=project_name, name=run_name, resume="auto", config=config)
+
+    def aggregate_train(self, server_round: int, replies, *args, **kwargs):
+        model, metrics = super().aggregate_train(server_round, replies, *args, **kwargs)
+
+        to_log = {"server_round": server_round}
+        for r in replies:
+            subset = r.content["config"]["subset"]
+            to_log |= {f"{subset}/{m}": v for m, v in r.content["metrics"].items()}
+        to_log |= {f"mean/{m}": v for m, v in metrics.items()}
+
+        wandb.log(to_log)
+
+        return model, metrics
+
+    def aggregate_evaluate(self, server_round: int, replies, *args, **kwargs):
+        aggregated = super().aggregate_evaluate(server_round, replies, *args, **kwargs)
+
+        to_log = {"server_round": server_round}
+        for r in replies:
+            subset = r.content["config"]["subset"]
+            to_log |= {f"{subset}/{m}": v for m, v in r.content["metrics"].items()}
+        to_log |= {f"mean/{m}": v for m, v in aggregated.items()}
+
+        wandb.log(to_log)
+
+        return aggregated
+
+
+class ScheduledFedAvg(
+    WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedAvg
+):
     pass

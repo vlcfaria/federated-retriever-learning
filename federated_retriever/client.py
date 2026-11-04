@@ -1,4 +1,11 @@
-from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import (
+    ArrayRecord,
+    ConfigRecord,
+    Context,
+    Message,
+    MetricRecord,
+    RecordDict,
+)
 from flwr.clientapp import ClientApp
 from tevatron.retriever.checkpoint_validation import evaluate_group
 from tevatron.retriever.collator import TrainCollator
@@ -93,10 +100,19 @@ def train(msg: Message, context: Context) -> Message:
         training_examples = len(train_dataset)  # epoch-based
 
     metrics = MetricRecord(
-        {"num-examples": training_examples, "train/loss": train_loss}
+        {
+            "num-examples": training_examples,
+            "train/loss": train_loss,
+        }
     )
 
-    content = RecordDict({"arrays": model_record, "metrics": metrics})
+    content = RecordDict(
+        {
+            "arrays": model_record,
+            "metrics": metrics,
+            "config": ConfigRecord({"subset": subset}),
+        }
+    )
 
     return Message(content=content, reply_to=msg)
 
@@ -129,6 +145,12 @@ def evaluate(msg: Message, context: Context) -> Message:
     model_record = ArrayRecord(model.encoder_state_dict())
     metrics = MetricRecord(metrics)
 
-    content = RecordDict({"arrays": model_record, "metrics": metrics})
+    content = RecordDict(
+        {
+            "arrays": model_record,
+            "metrics": metrics,
+            "config": ConfigRecord({"subset": subset}),
+        }
+    )
 
     return Message(content=content, reply_to=msg)

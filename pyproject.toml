@@ -46,10 +46,12 @@ serverapp = "federated_retriever.server:server_app"
 clientapp = "federated_retriever.client:app"
 
 [tool.flwr.app.config]
+project-name="federated-retriever-learning"
+run-name="testing"
 fraction-train = 1.0 # Leave for cross-silo
-fraction-evaluate = 1.0 # BEIR avg
+fraction-evaluate = 0.25 # BEIR avg
 num-server-rounds = 30
-eval-interval = 5
+eval-interval = 1
 save-model = true
 subsets = "arguana,fever,fiqa,hotpotqa,msmarco_passage,nq,scidocsrr"
 model_name_or_path="intfloat/e5-small-unsupervised"
@@ -75,7 +77,7 @@ warmup_steps = 0.1 #Warmup fresh adamw values
 gradient_checkpointing = true
 dataloader_num_workers = 8 
 deepspeed = "config/ds_zero0_federated_config.json"
-max_steps = 100 # NOTE: this is the steps taking on each client training round
+max_steps = 5 # NOTE: this is the steps taking on each client training round
 eval_query_dir = "../dataset/rlhn-680k/dev-split/dev/"
 eval_corpus_dir = "../dataset/rlhn-680k/dev-corpus-final"
 validate_query_max_len = 512
