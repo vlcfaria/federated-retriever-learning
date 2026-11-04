@@ -44,6 +44,12 @@ def train(msg: Message, context: Context) -> Message:
     # Get this client's dataset partition
     subset, partition_id, num_partitions = _partition_info(context)
     model_args, data_args, training_args, _ = parse_config_args(context)
+    round_lr = msg.content["config"].get("learning_rate")
+    if round_lr is not None:
+        training_args.learning_rate = float(round_lr)
+    # override seed to prevent training on same examples
+    server_round = int(msg.content["config"]["server-round"])
+    training_args.seed = int(training_args.seed) + server_round
 
     train_dataset = FederatedTrainDataset(
         subset, partition_id, num_partitions, data_args

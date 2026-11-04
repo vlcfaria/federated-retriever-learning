@@ -114,6 +114,8 @@ class FederatedTrainer(TevatronTrainer):
 
         engine = None
         try:
+            # Should initialize a fresh optimizer state. Standard for FL
+            # We can alleviate this a bit using a bit of warmup
             engine, _, _, _ = deepspeed.initialize(
                 model=self.model,
                 model_parameters=[
