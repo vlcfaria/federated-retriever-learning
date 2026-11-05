@@ -2,8 +2,8 @@
 #SBATCH --job-name=pipeline
 #SBATCH --partition=rtx8000
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:2
 #SBATCH --mem=192G
 #SBATCH --time=12:00:00
 #SBATCH --output=/home/vinicius.faria/federated-retriever-learning/sbatch/logs/%x-%j.out

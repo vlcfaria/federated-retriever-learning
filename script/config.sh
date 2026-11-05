@@ -16,6 +16,9 @@ export WANDB_RUN_GROUP="$RUN_NAME"
 export WANDB_DIR="$RUN_DIR/wandb"
 export TRITON_CACHE_DIR=/tmp/.triton
 export BEIR_CACHE_DIR="${BEIR_CACHE_DIR:-$HOME/.cache/tevatron/beir_qrels}"
+export FLWR_DISABLE_RUNTIME_DEPENDENCY_INSTALLATION=1
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 
 PY=.venv/bin/python
 DEEPSPEED=.venv/bin/deepspeed

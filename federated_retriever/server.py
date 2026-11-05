@@ -1,17 +1,18 @@
-import torch
+from pathlib import Path
+
 from flwr.app import ArrayRecord, Context
 from flwr.serverapp import Grid, ServerApp
 
 from .strategies import ScheduledFedAvg
 from .trainer.federated_model import FederatedDenseModel
-from .utils import parse_config_args, prep_model_kwargs
+from .utils import parse_config_args, prep_model_kwargs, prep_tokenizer
 
 server_app = ServerApp()
 
 
 @server_app.main()
 def main(grid: Grid, context: Context) -> None:
-    model_args, _, training_args, _ = parse_config_args(context)
+    model_args, data_args, training_args, _ = parse_config_args(context)
 
     model = FederatedDenseModel.build(
         model_args,
@@ -52,5 +53,9 @@ def main(grid: Grid, context: Context) -> None:
     if context.run_config.get("save-model", False):
         # Save final model to disk
         print("\nSaving final model to disk...")
-        state_dict = result.arrays.to_torch_state_dict()
-        torch.save(state_dict, "final_model.pt")
+        out_dir = Path(str(context.run_config.get("output-dir", "final_model_export")))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        model.encoder.save_pretrained(
+            out_dir, state_dict=result.arrays.to_torch_state_dict()
+        )
+        prep_tokenizer(model_args, data_args).save_pretrained(out_dir)

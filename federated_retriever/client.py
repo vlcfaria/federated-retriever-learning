@@ -92,10 +92,12 @@ def train(msg: Message, context: Context) -> Message:
 
     if training_args.max_steps > 0:
         # TODO this is incorrect on multiple gpu scenarios
-        training_examples = max(
-            len(train_dataset),
-            training_args.max_steps * training_args.per_device_train_batch_size,
-        )
+        # TODO work on this later, the equation above can help, but baselines needs to be set on more standard approaches
+        # training_examples = max(
+        #    len(train_dataset),
+        #    training_args.max_steps * training_args.per_device_train_batch_size,
+        # )
+        training_examples = len(train_dataset)
     else:
         training_examples = len(train_dataset)  # epoch-based
 

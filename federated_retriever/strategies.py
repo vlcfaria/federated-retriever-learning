@@ -68,6 +68,9 @@ class WandbStrategyMixin:
     def aggregate_evaluate(self, server_round: int, replies, *args, **kwargs):
         aggregated = super().aggregate_evaluate(server_round, replies, *args, **kwargs)
 
+        if aggregated is None:
+            return aggregated
+
         to_log = {"server_round": server_round}
         for r in replies:
             subset = r.content["config"]["subset"]
