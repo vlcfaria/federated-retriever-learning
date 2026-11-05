@@ -50,7 +50,7 @@ class PeriodicEvaluationStrategyMixin:
 class WandbStrategyMixin:
     def __init__(self, *args, project_name: str, run_name: str, config: dict, **kwargs):
         super().__init__(*args, **kwargs)
-        wandb.init(project=project_name, name=run_name, resume="auto", config=config)
+        wandb.init(project=project_name, name=run_name, resume="never", config=config)
 
     def aggregate_train(self, server_round: int, replies, *args, **kwargs):
         model, metrics = super().aggregate_train(server_round, replies, *args, **kwargs)

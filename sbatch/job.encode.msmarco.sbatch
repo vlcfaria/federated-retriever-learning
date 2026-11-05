@@ -47,7 +47,7 @@ for ds in msmarco; do
         --model_name_or_path "$RUN_DIR/train" \
         --dataset_shard_index $idx \
         --encode_output_path "$out/corpus_$ds.${tag}.pkl" \
-        --dataset_name=Tevatron/msmarco-passage-corpus --passage_max_len=1024 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true '--query_prefix=query: ' '--passage_prefix=passage: ' --fp16=true \
+        --dataset_name=Tevatron/msmarco-passage-corpus --passage_max_len=512 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true '--query_prefix=query: ' '--passage_prefix=passage: ' --fp16=true \
         >"$RUN_DIR/logs/encode-$RUN_NAME-${ds}-shard${tag}-${SLURM_JOB_ID:-manual}.log" 2>&1 &
       wave+=($!)
     done

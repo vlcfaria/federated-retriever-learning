@@ -5,7 +5,7 @@ from flwr.serverapp import Grid, ServerApp
 
 from .strategies import ScheduledFedAvg
 from .trainer.federated_model import FederatedDenseModel
-from .utils import parse_config_args, prep_model_kwargs, prep_tokenizer
+from .utils import parse_config_args, prep_model_kwargs, save_model
 
 server_app = ServerApp()
 
@@ -30,6 +30,9 @@ def main(grid: Grid, context: Context) -> None:
     total_steps = num_rounds * steps_per_round
     warmup_steps = training_args.get_warmup_steps(total_steps)
 
+    output_dir = Path(str(context.run_config.get("output-dir", "final_model_export")))
+    eval_interval = int(context.run_config["eval-interval"] or 1)
+
     strategy = ScheduledFedAvg(
         fraction_train=float(fraction_train),
         fraction_evaluate=float(fraction_evaluate),
@@ -37,7 +40,7 @@ def main(grid: Grid, context: Context) -> None:
         steps_per_round=steps_per_round,
         total_steps=total_steps,
         warmup_steps=warmup_steps,
-        eval_interval=int(context.run_config["eval-interval"] or 1),
+        eval_interval=eval_interval,
         project_name=str(context.run_config["project-name"]),
         run_name=str(context.run_config["run-name"]),
         config=context.run_config,
@@ -48,14 +51,24 @@ def main(grid: Grid, context: Context) -> None:
         grid=grid,
         initial_arrays=arrays,
         num_rounds=int(num_rounds),
+        evaluate_fn=lambda round, array_record: (
+            save_model(
+                model_args,
+                data_args,
+                output_dir / f"checkpoint_round_{round}",
+                model,
+                array_record.to_torch_state_dict(),
+            )
+            if round != 0 and round % eval_interval == 0
+            else None
+        ),
     )
 
-    if context.run_config.get("save-model", False):
-        # Save final model to disk
-        print("\nSaving final model to disk...")
-        out_dir = Path(str(context.run_config.get("output-dir", "final_model_export")))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        model.encoder.save_pretrained(
-            out_dir, state_dict=result.arrays.to_torch_state_dict()
+    if context.run_config.get("save-model", True):
+        save_model(
+            model_args,
+            data_args,
+            output_dir,
+            model,
+            result.arrays.to_torch_state_dict(),
         )
-        prep_tokenizer(model_args, data_args).save_pretrained(out_dir)

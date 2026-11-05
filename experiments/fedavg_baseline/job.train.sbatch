@@ -12,6 +12,18 @@ set -e
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
 source ./script/config.sh
 
+# Isolate Flower's local SuperLink per job. The default `:local:` SuperLink keeps
+# persistent state in ~/.flwr/local-superlink, which is shared over NFS across
+# nodes and causes sqlite lock / task-token failures when runs overlap.
+JOB_OFFSET=$(( ${SLURM_JOB_ID:-$$} % 1000 ))
+export FLWR_HOME="/tmp/${USER}/flwr-${SLURM_JOB_ID:-$$}"
+mkdir -p "$FLWR_HOME"
+if [[ -f "$HOME/.flwr/config.toml" ]]; then
+  cp "$HOME/.flwr/config.toml" "$FLWR_HOME/config.toml"
+fi
+export FLWR_LOCAL_SUPERLINK_HTTP_API_PORT=$((39091 + JOB_OFFSET))
+export FLWR_LOCAL_CONTROL_API_PORT=$((40093 + JOB_OFFSET))
+
 mkdir -p "$RUN_DIR/wandb" "$RUN_DIR/train" "$RUN_DIR/logs" "$RUN_DIR/validation"
 
 flwr run . --stream \

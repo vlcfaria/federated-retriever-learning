@@ -106,3 +106,11 @@ def flatten_dict(dictionary):
             ans[k] = v
 
     return ans
+
+
+def save_model(model_args, data_args, path: str | Path, model, state_dict):
+    print("\nSaving final model to disk...")
+    out_dir = Path(path)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model.encoder.save_pretrained(out_dir, state_dict=state_dict)
+    prep_tokenizer(model_args, data_args).save_pretrained(out_dir)
