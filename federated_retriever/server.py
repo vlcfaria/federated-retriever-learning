@@ -6,10 +6,10 @@ from flwr.serverapp import Grid, ServerApp
 from .strategies import SERVER_STRATEGIES
 from .trainer.federated_model import FederatedDenseModel
 from .utils import (
+    load_strategy_params,
     parse_config_args,
     prep_model_kwargs,
     save_model,
-    load_strategy_params,
 )
 
 server_app = ServerApp()

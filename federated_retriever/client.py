@@ -82,6 +82,7 @@ def train(msg: Message, context: Context) -> Message:
         train_dataset=train_dataset,
         data_collator=collator,
         ds_config=training_args.ds_config,
+        min_steps=int(context.run_config.get("min_steps", 1)),
     )
     train_dataset.set_trainer(trainer)
 

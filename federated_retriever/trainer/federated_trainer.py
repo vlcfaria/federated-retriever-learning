@@ -61,6 +61,7 @@ class FederatedTrainer(TevatronTrainer):
         train_dataset,
         data_collator,
         ds_config=None,
+        min_steps: int = 1,
         **kwargs,
     ):
         if ds_config is None:
@@ -82,6 +83,7 @@ class FederatedTrainer(TevatronTrainer):
             **kwargs,
         )
         self.ds_config = ds_config
+        self.min_steps = max(1, int(min_steps))
 
     def _resolve_ds_config(self, num_training_steps: int) -> dict:
         hf_config = HfTrainerDeepSpeedConfig(self.ds_config)
@@ -98,6 +100,15 @@ class FederatedTrainer(TevatronTrainer):
         num_steps = self.args.max_steps
         if num_steps is None or num_steps <= 0:
             num_steps = max(1, math.ceil(len(dataloader) * self.args.num_train_epochs))
+            if num_steps < self.min_steps:
+                log(
+                    INFO,
+                    "%s | raising local steps from %d to min_steps=%d",
+                    getattr(self.train_dataset, "subset", "client"),
+                    num_steps,
+                    self.min_steps,
+                )
+                num_steps = self.min_steps
 
         logging_steps = self.args.logging_steps
         if isinstance(logging_steps, float) and 0 < logging_steps < 1:
