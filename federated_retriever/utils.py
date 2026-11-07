@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -114,3 +115,9 @@ def save_model(model_args, data_args, path: str | Path, model, state_dict):
     out_dir.mkdir(parents=True, exist_ok=True)
     model.encoder.save_pretrained(out_dir, state_dict=state_dict)
     prep_tokenizer(model_args, data_args).save_pretrained(out_dir)
+
+
+def load_strategy_params(run_config, key: str) -> dict:
+    """Strategy params is recorded as a dict per flower limitations, so we parse it here"""
+    raw = run_config.get(key, "{}")
+    return json.loads(raw) if isinstance(raw, str) else dict(raw)

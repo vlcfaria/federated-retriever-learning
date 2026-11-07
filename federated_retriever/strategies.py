@@ -1,4 +1,4 @@
-from flwr.serverapp.strategy import FedAvg
+from flwr.serverapp.strategy import FedAvg, FedAvgM
 
 import wandb
 
@@ -86,3 +86,12 @@ class ScheduledFedAvg(
     WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedAvg
 ):
     pass
+
+
+class ScheduledFedAvgM(
+    WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedAvgM
+):
+    pass
+
+
+SERVER_STRATEGIES = {"fedavg": ScheduledFedAvg, "fedavgm": ScheduledFedAvgM}

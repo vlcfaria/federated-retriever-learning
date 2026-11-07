@@ -23,7 +23,7 @@ mkdir -p "$RUN_DIR/wandb" "$RUN_DIR/train" "$RUN_DIR/logs" "$RUN_DIR/validation"
   '--query_prefix=query: ' '--passage_prefix=passage: ' \
   --dataset_name="../dataset/rlhn-680k/dev-split/train" \
   --query_max_len=192 --passage_max_len=192 --train_group_size=8 \
-  --per_device_train_batch_size=512 --gradient_accumulation_steps=1 \
+  --per_device_train_batch_size=256 --gradient_accumulation_steps=1 \
   --learning_rate=2e-5 --temperature=0.01 \
   --logging_steps=20 --save_strategy=steps --save_total_limit=10 \
   --report_to=wandb --seed=42 --weight_decay=0.01 --warmup_steps=0.1 \

@@ -3,9 +3,14 @@ from pathlib import Path
 from flwr.app import ArrayRecord, Context
 from flwr.serverapp import Grid, ServerApp
 
-from .strategies import ScheduledFedAvg
+from .strategies import SERVER_STRATEGIES
 from .trainer.federated_model import FederatedDenseModel
-from .utils import parse_config_args, prep_model_kwargs, save_model
+from .utils import (
+    parse_config_args,
+    prep_model_kwargs,
+    save_model,
+    load_strategy_params,
+)
 
 server_app = ServerApp()
 
@@ -25,7 +30,9 @@ def main(grid: Grid, context: Context) -> None:
     fraction_train = context.run_config["fraction-train"]
     fraction_evaluate = context.run_config["fraction-evaluate"]
     num_rounds = context.run_config["num-server-rounds"]
-    steps_per_round = int(training_args.max_steps)
+
+    # Theoretically could be anything here for the scheduler to work...
+    steps_per_round = max(1, int(training_args.max_steps))
 
     total_steps = num_rounds * steps_per_round
     warmup_steps = training_args.get_warmup_steps(total_steps)
@@ -33,7 +40,12 @@ def main(grid: Grid, context: Context) -> None:
     output_dir = Path(str(context.run_config.get("output-dir", "final_model_export")))
     eval_interval = int(context.run_config["eval-interval"] or 1)
 
-    strategy = ScheduledFedAvg(
+    server_strategy = SERVER_STRATEGIES[str(context.run_config["server-strategy"])]
+    server_strategy_params = load_strategy_params(
+        context.run_config, "server-strategy-params"
+    )
+
+    strategy = server_strategy(
         fraction_train=float(fraction_train),
         fraction_evaluate=float(fraction_evaluate),
         base_lr=training_args.learning_rate,
@@ -44,6 +56,7 @@ def main(grid: Grid, context: Context) -> None:
         project_name=str(context.run_config["project-name"]),
         run_name=str(context.run_config["run-name"]),
         config=context.run_config,
+        **server_strategy_params,
     )
 
     # Start the strategy

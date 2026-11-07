@@ -1,5 +1,6 @@
 import copy
 import gc
+import math
 import os
 import socket
 from logging import INFO
@@ -96,7 +97,7 @@ class FederatedTrainer(TevatronTrainer):
         dataloader = self.get_train_dataloader()
         num_steps = self.args.max_steps
         if num_steps is None or num_steps <= 0:
-            num_steps = len(dataloader) * max(1, int(self.args.num_train_epochs))
+            num_steps = max(1, math.ceil(len(dataloader) * self.args.num_train_epochs))
 
         logging_steps = self.args.logging_steps
         if isinstance(logging_steps, float) and 0 < logging_steps < 1:
