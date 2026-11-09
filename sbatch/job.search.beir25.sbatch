@@ -39,14 +39,3 @@ for ds in arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq q
 
   touch "$out/.done"
 done
-
-# start evaluation
-export OPENAI_API_KEY=dummy
-
-"$PY" -m tevatron.eval.run \
-  --benchmark beir15 \
-  --datasets arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq quora scidocs scifact trec-covid webis-touche2020 cqadupstack-android cqadupstack-english cqadupstack-gaming cqadupstack-gis cqadupstack-mathematica cqadupstack-physics cqadupstack-programmers cqadupstack-stats cqadupstack-tex cqadupstack-unix cqadupstack-webmasters cqadupstack-wordpress \
-  --ranklist_pattern "$RUN_DIR/search/{dataset}/rank.text" \
-  --results_dir "$RUN_DIR/eval/beir25" \
-  --name "$RUN_NAME" \
-  >"$RUN_DIR/logs/eval-$RUN_NAME-${SLURM_JOB_ID:-manual}.log" 2>&1

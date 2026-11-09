@@ -1,3 +1,5 @@
+import math
+
 from flwr.app import (
     ArrayRecord,
     ConfigRecord,
@@ -61,7 +63,18 @@ def train(msg: Message, context: Context) -> Message:
     train_dataset = FederatedTrainDataset(
         subset, partition_id, num_partitions, data_args
     )
-    print(subset, "training on", len(train_dataset), "queries")
+    num_examples = len(train_dataset)
+    print(subset, "training on", num_examples, "queries")
+
+    weighting = str(context.run_config.get("weighting", "size"))
+    if weighting == "size":
+        weight = float(num_examples)
+    elif weighting == "uniform":
+        weight = 1.0
+    elif weighting == "sqrt":
+        weight = math.sqrt(num_examples)
+    else:
+        raise ValueError(f"Unknown weighting: {weighting}")
 
     tokenizer = prep_tokenizer(model_args, data_args)
     collator = TrainCollator(data_args, tokenizer)
@@ -83,6 +96,7 @@ def train(msg: Message, context: Context) -> Message:
         data_collator=collator,
         ds_config=training_args.ds_config,
         min_steps=int(context.run_config.get("min_steps", 1)),
+        proximal_mu=float(msg.content["config"].get("proximal-mu", 0.0)),
     )
     train_dataset.set_trainer(trainer)
 
@@ -91,20 +105,11 @@ def train(msg: Message, context: Context) -> Message:
     # Construct and return reply Message
     model_record = ArrayRecord(encoder_state)
 
-    if training_args.max_steps > 0:
-        # TODO this is incorrect on multiple gpu scenarios
-        # TODO work on this later, the equation above can help, but baselines needs to be set on more standard approaches
-        # training_examples = max(
-        #    len(train_dataset),
-        #    training_args.max_steps * training_args.per_device_train_batch_size,
-        # )
-        training_examples = len(train_dataset)
-    else:
-        training_examples = len(train_dataset)  # epoch-based
-
     metrics = MetricRecord(
         {
-            "num-examples": training_examples,
+            "num-examples": num_examples,
+            "weight": weight,
+            "num-steps": int(getattr(trainer, "steps_done", 0)),
             "train/loss": train_loss,
         }
     )
@@ -141,9 +146,9 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     metrics = flatten_dict(metrics)
 
-    metrics["num-examples"] = (
-        1  # Cross-silo training should be macro-averaged for retrieval (e.g. BEIR)
-    )
+    # Cross-silo evaluation should be macro-averaged for retrieval (e.g. BEIR).
+    metrics["num-examples"] = 1
+    metrics["weight"] = 1.0
 
     model_record = ArrayRecord(model.encoder_state_dict())
     metrics = MetricRecord(metrics)

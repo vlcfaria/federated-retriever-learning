@@ -56,6 +56,7 @@ def main(grid: Grid, context: Context) -> None:
         project_name=str(context.run_config["project-name"]),
         run_name=str(context.run_config["run-name"]),
         config=context.run_config,
+        weighted_by_key="weight",
         **server_strategy_params,
     )
 

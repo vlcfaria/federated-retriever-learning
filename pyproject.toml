@@ -85,6 +85,7 @@ deepspeed = "config/ds_zero0_federated_config.json"
 num_train_epochs = 0.125 # NOTE this gets overriden by max_steps
 max_steps = 95 # NOTE: this is the steps taking on each client training round
 min_steps = 8 # useful when using epoch based training while avoiding too few steps
+weighting = "size" # size | uniform | sqrt; used as the server aggregation weight
 eval_query_dir = "../dataset/rlhn-680k/dev-split/dev/"
 eval_corpus_dir = "../dataset/rlhn-680k/dev-corpus-final"
 validate_query_max_len = 512

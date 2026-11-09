@@ -62,6 +62,7 @@ class FederatedTrainer(TevatronTrainer):
         data_collator,
         ds_config=None,
         min_steps: int = 1,
+        proximal_mu: float = 0.0,
         **kwargs,
     ):
         if ds_config is None:
@@ -84,6 +85,28 @@ class FederatedTrainer(TevatronTrainer):
         )
         self.ds_config = ds_config
         self.min_steps = max(1, int(min_steps))
+        self.proximal_mu = float(proximal_mu)
+        self._global_params = None
+        self._last_prox = 0.0
+        self.steps_done = 0
+
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        loss = super().compute_loss(
+            model, inputs, return_outputs, num_items_in_batch
+        )
+        if self.proximal_mu <= 0 or self._global_params is None:
+            return loss
+
+        module = model.module if hasattr(model, "module") else model
+        params = [p for p in module.parameters() if p.requires_grad]
+        prox = sum(
+            (param.float() - global_param.float()).pow(2).sum()
+            for param, global_param in zip(params, self._global_params)
+        )
+        self._last_prox = float(prox.detach())
+        return loss + 0.5 * self.proximal_mu * prox
 
     def _resolve_ds_config(self, num_training_steps: int) -> dict:
         hf_config = HfTrainerDeepSpeedConfig(self.ds_config)
@@ -135,6 +158,12 @@ class FederatedTrainer(TevatronTrainer):
                 ],
                 config=self._resolve_ds_config(num_steps),
             )
+            if self.proximal_mu > 0:
+                self._global_params = [
+                    p.detach().clone()
+                    for p in engine.module.parameters()
+                    if p.requires_grad
+                ]
 
             total_loss = 0.0
             running_loss = 0.0
@@ -159,13 +188,14 @@ class FederatedTrainer(TevatronTrainer):
                         )
                         log(
                             INFO,
-                            "%s | n=%d | step %d/%d | loss %.4f | lr %.2e",
+                            "%s | n=%d | step %d/%d | loss %.4f | lr %.2e | prox %.3g",
                             label,
                             num_examples,
                             steps_done,
                             num_steps,
                             running_loss / max(1, running_count),
                             lr,
+                            self._last_prox,
                         )
                         running_loss = 0.0
                         running_count = 0
@@ -173,6 +203,7 @@ class FederatedTrainer(TevatronTrainer):
                     if steps_done >= num_steps:
                         break
 
+            self.steps_done = steps_done
             return engine.module.encoder_state_dict(), total_loss / max(1, steps_done)
         finally:
             if engine is not None and hasattr(engine, "destroy"):

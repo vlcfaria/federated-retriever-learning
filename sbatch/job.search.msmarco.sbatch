@@ -39,14 +39,3 @@ for ds in msmarco; do
 
   touch "$out/.done"
 done
-
-# start evaluation
-export OPENAI_API_KEY=dummy
-
-"$PY" -m tevatron.eval.run \
-  --benchmark beir15 \
-  --datasets msmarco \
-  --ranklist_pattern "$RUN_DIR/search/{dataset}/rank.text" \
-  --results_dir "$RUN_DIR/eval/msmarco" \
-  --name "$RUN_NAME" \
-  >"$RUN_DIR/logs/eval-$RUN_NAME-${SLURM_JOB_ID:-manual}.log" 2>&1

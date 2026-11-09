@@ -1,6 +1,7 @@
-from flwr.serverapp.strategy import FedAvg, FedAvgM
-
+import numpy as np
 import wandb
+from flwr.app import Array, ArrayRecord
+from flwr.serverapp.strategy import FedAvg, FedAvgM, FedProx
 
 
 class LRScheduleMixin:
@@ -94,4 +95,84 @@ class ScheduledFedAvgM(
     pass
 
 
-SERVER_STRATEGIES = {"fedavg": ScheduledFedAvg, "fedavgm": ScheduledFedAvgM}
+class ScheduledFedProx(
+    WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedProx
+):
+    pass
+
+
+class FedNova(FedAvg):
+    """FedAvg with per-client local-step normalization.
+
+    The server update is
+
+        w_next = w + tau_eff * sum_i p_i * (w_i - w) / tau_i
+
+    where tau_i is the number of local steps performed by client i and
+    tau_eff = sum_i p_i * tau_i. When all clients take the same number of
+    steps this is exactly FedAvg.
+    """
+
+    def configure_train(self, server_round, arrays, config, grid):
+        self._global_arrays = arrays
+        return super().configure_train(server_round, arrays, config, grid)
+
+    def aggregate_train(self, server_round, replies):
+        valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
+
+        arrays, metrics = None, None
+        if valid_replies:
+            reply_contents = [msg.content for msg in valid_replies]
+            arrays = self._aggregate_arrays(reply_contents)
+            metrics = self.train_metrics_aggr_fn(
+                reply_contents, self.weighted_by_key
+            )
+        return arrays, metrics
+
+    def _aggregate_arrays(self, reply_contents):
+        if self._global_arrays is None:
+            raise RuntimeError(
+                "FedNova.configure_train must run before aggregate_train"
+            )
+
+        weights = []
+        taus = []
+        for record in reply_contents:
+            metricrecord = next(iter(record.metric_records.values()))
+            weights.append(float(metricrecord[self.weighted_by_key]))
+            taus.append(float(metricrecord["num-steps"]))
+
+        total_weight = sum(weights)
+        p = [weight / total_weight for weight in weights]
+        tau_eff = sum(pi * tau for pi, tau in zip(p, taus))
+
+        global_arrays = self._global_arrays.to_numpy_ndarrays()
+        keys = list(self._global_arrays.keys())
+
+        aggregated = {}
+        for key, global_value in zip(keys, global_arrays):
+            update = np.zeros_like(global_value)
+            for record, pi, tau in zip(reply_contents, p, taus):
+                if tau <= 0:
+                    raise ValueError("FedNova requires positive num-steps")
+                client_arrays = next(iter(record.array_records.values()))
+                update += pi * (client_arrays[key].numpy() - global_value) / tau
+            aggregated[key] = global_value + tau_eff * update
+
+        return ArrayRecord(
+            {key: Array(np.asarray(value)) for key, value in aggregated.items()}
+        )
+
+
+class ScheduledFedNova(
+    WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedNova
+):
+    pass
+
+
+SERVER_STRATEGIES = {
+    "fedavg": ScheduledFedAvg,
+    "fedavgm": ScheduledFedAvgM,
+    "fedprox": ScheduledFedProx,
+    "fednova": ScheduledFedNova,
+}
