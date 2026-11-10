@@ -6,6 +6,7 @@
 #SBATCH --gres=gpu:2
 #SBATCH --mem=192G
 #SBATCH --time=12:00:00
+#SBATCH --exclude=dl-05
 #SBATCH --output=/home/vinicius.faria/federated-retriever-learning/sbatch/logs/%x-%j.out
 #SBATCH --error=/home/vinicius.faria/federated-retriever-learning/sbatch/logs/%x-%j.err
 

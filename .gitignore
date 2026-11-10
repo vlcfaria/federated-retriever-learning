@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 wandb/
 experiments/*/*/
+docs/
 
 # C extensions
 *.so
