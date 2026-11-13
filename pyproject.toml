@@ -19,6 +19,7 @@ dependencies = [
     "accelerate>=1.15.0",
     "peft>=0.21.2",
     "beir>=2.2.0",
+    "scipy>=1.17.1",
 ]
 
 [tool.uv]

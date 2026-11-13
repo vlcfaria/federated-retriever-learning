@@ -31,10 +31,9 @@ def flatten_metrics(eval_dir: Path, train_datasets: list[str] = []) -> dict[str,
         for key, value in data.items():
             if isinstance(value, dict):
                 for k, v in value.items():
-                    agg[dataset][k] = v
+                    agg[dataset][k] = v * 100 if "@" in k else v
             elif isinstance(value, (int, float)):
-                agg[dataset][key] = value
-
+                agg[dataset][key] = value * 100 if "@" in key else value
     # Condensate cqadupstack values
     dedup_beir_15 = [x for x in BEIR_15 if not x.startswith("cqadupstack")] + [
         "cqadupstack"

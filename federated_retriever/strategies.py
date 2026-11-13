@@ -1,7 +1,9 @@
 import numpy as np
-import wandb
 from flwr.app import Array, ArrayRecord
 from flwr.serverapp.strategy import FedAvg, FedAvgM, FedProx
+from scipy.optimize import minimize
+
+import wandb
 
 
 class LRScheduleMixin:
@@ -124,9 +126,7 @@ class FedNova(FedAvg):
         if valid_replies:
             reply_contents = [msg.content for msg in valid_replies]
             arrays = self._aggregate_arrays(reply_contents)
-            metrics = self.train_metrics_aggr_fn(
-                reply_contents, self.weighted_by_key
-            )
+            metrics = self.train_metrics_aggr_fn(reply_contents, self.weighted_by_key)
         return arrays, metrics
 
     def _aggregate_arrays(self, reply_contents):
@@ -164,8 +164,172 @@ class FedNova(FedAvg):
         )
 
 
+class FedNovaMGDA(FedAvg):
+    """FedNova + FedMGDA+ for fairness-based multi-objective gradient descent with step correction
+
+    We combine both algorithms by applying:
+        - Normalizing pseudo-gradients by steps taken
+        - Extracting the unit vector of each pseudo-gradient
+        - Solving the pareto update from MGDA according to weights and epsilon
+        - Re-scaling according to steps again
+    """
+
+    def __init__(self, *args, epsilon: float = 0.1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epsilon = epsilon
+
+    def configure_train(self, server_round, arrays, config, grid):
+        self._global_arrays = arrays
+        return super().configure_train(server_round, arrays, config, grid)
+
+    def aggregate_train(self, server_round, replies):
+        valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
+
+        arrays, metrics = None, None
+        if valid_replies:
+            reply_contents = [msg.content for msg in valid_replies]
+            arrays = self._aggregate_arrays(reply_contents, server_round)
+            metrics = self.train_metrics_aggr_fn(reply_contents, self.weighted_by_key)
+        return arrays, metrics
+
+    def _aggregate_arrays(self, reply_contents, server_round):
+        if self._global_arrays is None:
+            raise RuntimeError(
+                "FedNovaMGDA.configure_train must run before aggregate_train"
+            )
+
+        weights = []
+        taus = []
+        for record in reply_contents:
+            metricrecord = next(iter(record.metric_records.values()))
+            weights.append(float(metricrecord[self.weighted_by_key]))
+            taus.append(float(metricrecord["num-steps"]))
+
+        m = len(reply_contents)
+        weights_arr = np.asarray(weights, dtype=np.float64)
+        taus_arr = np.asarray(taus, dtype=np.float64)
+        if np.any(taus_arr <= 0):
+            raise ValueError("FedNovaMGDA requires positive num-steps")
+        p = weights_arr / np.sum(weights_arr)
+
+        global_model_np = {k: v.numpy() for k, v in self._global_arrays.items()}
+
+        # define each fednova's step-normalized pseudo-gradient
+        sq_norms = np.zeros(m, dtype=np.float64)
+        pseudogradients = []
+
+        for i, (record, tau) in enumerate(zip(reply_contents, taus_arr)):
+            client_arrays = next(iter(record.array_records.values()))
+            d_tilde = {}
+
+            # Apply (w0 - w) / tau, then normalize
+            for k, v in client_arrays.items():
+                diff = (global_model_np[k] - v.numpy()) / tau
+                d_tilde[k] = diff
+                sq_norms[i] += float(np.sum(diff.astype(np.float64) ** 2))
+
+            pseudogradients.append(d_tilde)
+        norms = np.sqrt(sq_norms) + 1e-12
+
+        # Build mxm Gram Matrix, G_ij = dot(d_i, d_j)
+        G = np.zeros((m, m), dtype=np.float64)
+        for k in global_model_np:
+            # Shape: (m, num_elements_in_layer_k)
+            layer_stack = np.stack(
+                [
+                    pg[k].reshape(-1).astype(np.float64) for pg in pseudogradients
+                ],  # (m, nxn)
+                axis=0,
+            )
+            G += (
+                layer_stack @ layer_stack.T
+            )  # dot(d_i, d_j) for this layer, this is mxm
+        # Unit normalize
+        G /= np.outer(norms, norms)  # divide by norm(d_i) * norm(d_j)
+
+        solver_success = True
+        solver_message = "skipped (m==1 or epsilon<=0)"
+        if m == 1 or self.epsilon <= 0.0:
+            lam_star = p
+        else:
+
+            def objective(lam: np.ndarray) -> float:
+                return float(0.5 * np.dot(lam, np.dot(G, lam)))
+
+            def jac(lam: np.ndarray) -> np.ndarray:
+                return np.dot(G, lam)
+
+            constraints = {"type": "eq", "fun": lambda lam: np.sum(lam) - 1.0}
+            bounds = [
+                (
+                    max(0.0, float(p[i] - self.epsilon)),
+                    min(1.0, float(p[i] + self.epsilon)),
+                )
+                for i in range(m)
+            ]
+
+            res = minimize(
+                objective,
+                x0=p,
+                method="SLSQP",
+                jac=jac,
+                bounds=bounds,
+                constraints=constraints,
+                options={"ftol": 1e-9, "maxiter": 200},
+            )
+            solver_success = bool(res.success)
+            solver_message = str(res.message)
+            lam_star = res.x if solver_success else p
+            # Clean up any numerical drift on the simplex
+            lam_star = np.clip(lam_star, 0.0, 1.0)
+            lam_star /= np.sum(lam_star)
+
+        # Handle fednova update with our modified lambda values and new scaling
+        # use lam_star here since it substituted p
+        tau_eff = float(np.dot(lam_star, taus_arr))
+        # rescale each step (this is effectively the "server learning rate")
+        step_scale = float(np.dot(lam_star, norms))
+
+        mgda_log = {
+            "mgda/solver_success": int(solver_success),
+            "mgda/tau_eff": tau_eff,
+            "mgda/step_scale": step_scale,
+        }
+        for i, record in enumerate(reply_contents):
+            subset = record["config"]["subset"]
+            mgda_log[f"mgda/lambda/{subset}"] = float(lam_star[i])
+        if wandb.run is not None:
+            wandb.log({**mgda_log, "server_round": server_round})
+        print(
+            f"[FedNovaMGDA] round={server_round} solver={solver_message} "
+            f"success={solver_success} tau_eff={tau_eff:.4f} "
+            f"step_scale={step_scale:.6g} lambda={np.round(lam_star, 6).tolist()}"
+        )
+
+        # tau_eff from original FedNova, step_scale is our inferred server learning rate
+        # norms since we didnt normalize the pseudogradient here and lam_star for standard FEDMGDA
+        client_coeffs = (tau_eff * step_scale * lam_star) / norms
+
+        new_global_dict = {}
+        for k, w0 in global_model_np.items():
+            update_k = np.zeros_like(w0, dtype=np.float64)
+            for i in range(m):
+                update_k += client_coeffs[i] * pseudogradients[i][k]
+
+            updated_param = (w0 - update_k).astype(w0.dtype)
+            new_global_dict[k] = Array(updated_param)
+
+        return ArrayRecord(new_global_dict)
+
+
 class ScheduledFedNova(
     WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedNova
+):
+    pass
+
+
+class ScheduledFedNovaMGDA(
+    WandbStrategyMixin, PeriodicEvaluationStrategyMixin, LRScheduleMixin, FedNovaMGDA
 ):
     pass
 
@@ -175,4 +339,5 @@ SERVER_STRATEGIES = {
     "fedavgm": ScheduledFedAvgM,
     "fedprox": ScheduledFedProx,
     "fednova": ScheduledFedNova,
+    "fednovamgda": ScheduledFedNovaMGDA,
 }
