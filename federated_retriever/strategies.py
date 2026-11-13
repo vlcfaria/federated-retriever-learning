@@ -284,11 +284,11 @@ class FedNovaMGDA(FedAvg):
             lam_star = np.clip(lam_star, 0.0, 1.0)
             lam_star /= np.sum(lam_star)
 
-        # Handle fednova update with our modified lambda values and new scaling
-        # use lam_star here since it substituted p
-        tau_eff = float(np.dot(lam_star, taus_arr))
-        # rescale each step (this is effectively the "server learning rate")
-        step_scale = float(np.dot(lam_star, norms))
+        # Anchor the FedNova step size to the prior weighting p. MGDA only
+        # changes the direction through lam_star.
+        tau_eff = float(np.dot(p, taus_arr))
+        # Rescale each unit direction back to the FedNova gradient scale.
+        step_scale = float(np.dot(p, norms))
 
         mgda_log = {
             "mgda/solver_success": int(solver_success),
@@ -306,8 +306,7 @@ class FedNovaMGDA(FedAvg):
             f"step_scale={step_scale:.6g} lambda={np.round(lam_star, 6).tolist()}"
         )
 
-        # tau_eff from original FedNova, step_scale is our inferred server learning rate
-        # norms since we didnt normalize the pseudogradient here and lam_star for standard FEDMGDA
+        # tau_eff and step_scale use p; lam_star only blends the unit directions.
         client_coeffs = (tau_eff * step_scale * lam_star) / norms
 
         new_global_dict = {}
