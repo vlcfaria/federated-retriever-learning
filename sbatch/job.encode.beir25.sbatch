@@ -25,13 +25,19 @@ wave=()
 cleanup() { for pid in "${wave[@]}"; do kill "$pid" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
-for ds in arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq quora scidocs scifact trec-covid webis-touche2020 cqadupstack-android cqadupstack-english cqadupstack-gaming cqadupstack-gis cqadupstack-mathematica cqadupstack-physics cqadupstack-programmers cqadupstack-stats cqadupstack-tex cqadupstack-unix cqadupstack-webmasters cqadupstack-wordpress; do
+DATASETS=${DATASETS:-"arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq quora scidocs scifact trec-covid webis-touche2020 cqadupstack-android cqadupstack-english cqadupstack-gaming cqadupstack-gis cqadupstack-mathematica cqadupstack-physics cqadupstack-programmers cqadupstack-stats cqadupstack-tex cqadupstack-unix cqadupstack-webmasters cqadupstack-wordpress"}
+for ds in $DATASETS; do
   out=$RUN_DIR/encode/$ds
   if [ -f "$out/.done" ]; then
     echo "encode: $ds already done, skipping"
     continue
   fi
   mkdir -p "$out"
+  if [ "$ds" = "quora" ]; then
+    passage_prefix='query: '
+  else
+    passage_prefix='passage: '
+  fi
 
   # materialize offline queries
   "$PY" -m tevatron.utils.prepare_queries --dataset "$ds" --output "$out/queries.jsonl"
@@ -48,7 +54,7 @@ for ds in arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq q
         --dataset_shard_index $idx \
         --dataset_config "$ds" \
         --encode_output_path "$out/corpus_$ds.${tag}.pkl" \
-        --dataset_name=Tevatron/beir-corpus --passage_max_len=512 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true '--query_prefix=query: ' '--passage_prefix=passage: ' --fp16=true \
+        --dataset_name=Tevatron/beir-corpus --passage_max_len=512 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true "--query_prefix=query: " "--passage_prefix=$passage_prefix" --fp16=true \
         >"$RUN_DIR/logs/encode-$RUN_NAME-${ds}-shard${tag}-${SLURM_JOB_ID:-manual}.log" 2>&1 &
       wave+=($!)
     done
@@ -62,7 +68,7 @@ for ds in arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq q
     --encode_is_query \
     --dataset_path "$out/queries.jsonl" \
     --encode_output_path "$out/query.pkl" \
-    --dataset_name=json --query_max_len=512 --per_device_eval_batch_size=1024 --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true '--query_prefix=query: ' '--passage_prefix=passage: ' --fp16=true \
+    --dataset_name=json --query_max_len=512 --per_device_eval_batch_size=1024 --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true "--query_prefix=query: " "--passage_prefix=$passage_prefix" --fp16=true \
     >"$RUN_DIR/logs/encode-$RUN_NAME-${ds}-query-${SLURM_JOB_ID:-manual}.log" 2>&1
 
   touch "$out/.done"

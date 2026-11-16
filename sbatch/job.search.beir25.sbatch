@@ -17,7 +17,8 @@ source ./script/config.sh
 
 mkdir -p "$RUN_DIR/search" "$RUN_DIR/eval/beir25" "$RUN_DIR/logs"
 
-for ds in arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq quora scidocs scifact trec-covid webis-touche2020 cqadupstack-android cqadupstack-english cqadupstack-gaming cqadupstack-gis cqadupstack-mathematica cqadupstack-physics cqadupstack-programmers cqadupstack-stats cqadupstack-tex cqadupstack-unix cqadupstack-webmasters cqadupstack-wordpress; do
+DATASETS=${DATASETS:-"arguana climate-fever dbpedia-entity fever fiqa hotpotqa nfcorpus nq quora scidocs scifact trec-covid webis-touche2020 cqadupstack-android cqadupstack-english cqadupstack-gaming cqadupstack-gis cqadupstack-mathematica cqadupstack-physics cqadupstack-programmers cqadupstack-stats cqadupstack-tex cqadupstack-unix cqadupstack-webmasters cqadupstack-wordpress"}
+for ds in $DATASETS; do
   out=$RUN_DIR/search/$ds
   if [ -f "$out/.done" ]; then
     echo "search: $ds already done, skipping"
