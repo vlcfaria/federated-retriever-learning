@@ -1,9 +1,24 @@
+import math
+
 import numpy as np
+import torch
 from flwr.app import Array, ArrayRecord
 from flwr.serverapp.strategy import FedAvg, FedAvgM, FedProx
 from scipy.optimize import minimize
 
 import wandb
+
+
+def _to_param_grid(values: np.ndarray, dtype: torch.dtype) -> np.ndarray:
+    """Round server-side float32 arrays to the precision clients actually store.
+
+    `w0 - w_client` is sensible to client's rounding offset
+    in addition to the real update.
+    """
+    if dtype in (torch.float32, torch.float64):
+        return values
+    # torch.tensor copies, which also handles Flower's read-only numpy views
+    return torch.tensor(values).to(dtype).float().numpy()
 
 
 class LRScheduleMixin:
@@ -115,6 +130,14 @@ class FedNova(FedAvg):
     steps this is exactly FedAvg.
     """
 
+    def __init__(self, *args, param_dtype: str = "float32", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.param_dtype = (
+            param_dtype
+            if isinstance(param_dtype, torch.dtype)
+            else getattr(torch, param_dtype, torch.float32)
+        )
+
     def configure_train(self, server_round, arrays, config, grid):
         self._global_arrays = arrays
         return super().configure_train(server_round, arrays, config, grid)
@@ -151,13 +174,16 @@ class FedNova(FedAvg):
 
         aggregated = {}
         for key, global_value in zip(keys, global_arrays):
+            global_value = _to_param_grid(global_value, self.param_dtype)
             update = np.zeros_like(global_value)
             for record, pi, tau in zip(reply_contents, p, taus):
                 if tau <= 0:
                     raise ValueError("FedNova requires positive num-steps")
                 client_arrays = next(iter(record.array_records.values()))
                 update += pi * (client_arrays[key].numpy() - global_value) / tau
-            aggregated[key] = global_value + tau_eff * update
+            aggregated[key] = _to_param_grid(
+                global_value + tau_eff * update, self.param_dtype
+            )
 
         return ArrayRecord(
             {key: Array(np.asarray(value)) for key, value in aggregated.items()}
@@ -174,9 +200,16 @@ class FedNovaMGDA(FedAvg):
         - Re-scaling according to steps again
     """
 
-    def __init__(self, *args, epsilon: float = 0.1, **kwargs):
+    def __init__(
+        self, *args, epsilon: float = 0.1, param_dtype: str = "float32", **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.epsilon = epsilon
+        self.param_dtype = (
+            param_dtype
+            if isinstance(param_dtype, torch.dtype)
+            else getattr(torch, param_dtype, torch.float32)
+        )
 
     def configure_train(self, server_round, arrays, config, grid):
         self._global_arrays = arrays
@@ -212,7 +245,11 @@ class FedNovaMGDA(FedAvg):
             raise ValueError("FedNovaMGDA requires positive num-steps")
         p = weights_arr / np.sum(weights_arr)
 
-        global_model_np = {k: v.numpy() for k, v in self._global_arrays.items()}
+        # Snap the global model to the grid clients load; this is what they see.
+        global_grid_np = {
+            k: _to_param_grid(v.numpy(), self.param_dtype)
+            for k, v in self._global_arrays.items()
+        }
 
         # define each fednova's step-normalized pseudo-gradient
         sq_norms = np.zeros(m, dtype=np.float64)
@@ -222,9 +259,11 @@ class FedNovaMGDA(FedAvg):
             client_arrays = next(iter(record.array_records.values()))
             d_tilde = {}
 
-            # Apply (w0 - w) / tau, then normalize
+            # Apply (w0 - w) / tau, then normalize. `w0` is rounded to the
+            # clients' storage grid first, otherwise the shared bf16 rounding
+            # offset dominates the diff once the LR is small.
             for k, v in client_arrays.items():
-                diff = (global_model_np[k] - v.numpy()) / tau
+                diff = (global_grid_np[k] - v.numpy()) / tau
                 d_tilde[k] = diff
                 sq_norms[i] += float(np.sum(diff.astype(np.float64) ** 2))
 
@@ -233,7 +272,7 @@ class FedNovaMGDA(FedAvg):
 
         # Build mxm Gram Matrix, G_ij = dot(d_i, d_j)
         G = np.zeros((m, m), dtype=np.float64)
-        for k in global_model_np:
+        for k in global_grid_np:
             # Shape: (m, num_elements_in_layer_k)
             layer_stack = np.stack(
                 [
@@ -310,13 +349,13 @@ class FedNovaMGDA(FedAvg):
         client_coeffs = (tau_eff * step_scale * lam_star) / norms
 
         new_global_dict = {}
-        for k, w0 in global_model_np.items():
+        for k, w0 in global_grid_np.items():
             update_k = np.zeros_like(w0, dtype=np.float64)
             for i in range(m):
                 update_k += client_coeffs[i] * pseudogradients[i][k]
 
             updated_param = (w0 - update_k).astype(w0.dtype)
-            new_global_dict[k] = Array(updated_param)
+            new_global_dict[k] = Array(_to_param_grid(updated_param, self.param_dtype))
 
         return ArrayRecord(new_global_dict)
 

@@ -19,10 +19,11 @@ server_app = ServerApp()
 def main(grid: Grid, context: Context) -> None:
     model_args, data_args, training_args, _ = parse_config_args(context)
 
+    model_kwargs = prep_model_kwargs(model_args, training_args)
     model = FederatedDenseModel.build(
         model_args,
         training_args,
-        **prep_model_kwargs(model_args, training_args),
+        **model_kwargs,
     )
     arrays = ArrayRecord(model.encoder_state_dict())
 
@@ -57,6 +58,7 @@ def main(grid: Grid, context: Context) -> None:
         run_name=str(context.run_config["run-name"]),
         config=context.run_config,
         weighted_by_key="weight",
+        param_dtype=str(model_kwargs["torch_dtype"]).replace("torch.", ""),
         **server_strategy_params,
     )
 
