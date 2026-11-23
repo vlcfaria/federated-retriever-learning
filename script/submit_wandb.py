@@ -6,7 +6,6 @@ import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-import yaml
 from tevatron.eval.benchmarks import BEIR_13, BEIR_15, CQADUP_SUBS
 
 
@@ -24,7 +23,7 @@ def flatten_metrics(eval_dir: Path, train_datasets: list[str] = []) -> dict[str,
     ``{"eval/<dataset>/<group>/<metric>": value, "eval/<dataset>/<scalar>": value}``
     """
     agg = {}
-    for path in sorted(eval_dir.glob("*/*.metrics.json")):
+    for path in sorted(eval_dir.glob("beir15/*.metrics.json")):
         data = json.loads(path.read_text())
         dataset = data.get("dataset", path.name.split(".")[0])
         agg[dataset] = {}

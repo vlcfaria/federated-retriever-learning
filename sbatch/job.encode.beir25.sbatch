@@ -15,10 +15,42 @@ cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 
 source ./script/config.sh
 
+MODEL_FAMILY=${MODEL_FAMILY:-e5}
+case "$MODEL_FAMILY" in
+  e5)
+    ENCODER_POOLING=mean
+    ENCODER_QUERY_PREFIX='query: '
+    ENCODER_PASSAGE_PREFIX='passage: '
+    ENCODER_QUORA_PREFIX='query: '
+    ;;
+  denseon)
+    ENCODER_POOLING=cls
+    ENCODER_QUERY_PREFIX='query: '
+    ENCODER_PASSAGE_PREFIX='document: '
+    ENCODER_QUORA_PREFIX='document: '
+    ;;
+  *)
+    echo "Unknown MODEL_FAMILY: $MODEL_FAMILY" >&2
+    exit 1
+    ;;
+esac
+
 mkdir -p "$RUN_DIR/wandb" "$RUN_DIR/encode" "$RUN_DIR/logs"
 
 NSHARD=4
 NGPU=${SLURM_GPUS_ON_NODE:-1}
+
+# Encoder precision - fp16 default (good enough for BERT), bf16 (modernBERT safe) + fp32
+# tevatron's encode() opens torch.amp.autocast("cuda") with no dtype, which is
+# fp16; bf16 therefore goes through script/encode_bf16.py to set the dtype.
+ENCODER_DTYPE="${ENCODER_DTYPE:-fp16}"
+case "$ENCODER_DTYPE" in
+  bf16) ENC_CMD=("$PY" script/encode_bf16.py); ENC_DTYPE_ARGS=(--bf16=true --fp16=false) ;;
+  fp16) ENC_CMD=("$PY" -m tevatron.retriever.driver.encode); ENC_DTYPE_ARGS=(--bf16=false --fp16=true) ;;
+  fp32) ENC_CMD=("$PY" -m tevatron.retriever.driver.encode); ENC_DTYPE_ARGS=(--bf16=false --fp16=false) ;;
+  *) echo "Unknown ENCODER_DTYPE: $ENCODER_DTYPE (expected fp16|bf16|fp32)" >&2; exit 1 ;;
+esac
+echo "encode beir25: dtype=$ENCODER_DTYPE"
 
 # prevent orphaned shards
 wave=()
@@ -34,9 +66,9 @@ for ds in $DATASETS; do
   fi
   mkdir -p "$out"
   if [ "$ds" = "quora" ]; then
-    passage_prefix='query: '
+    passage_prefix="$ENCODER_QUORA_PREFIX"
   else
-    passage_prefix='passage: '
+    passage_prefix="$ENCODER_PASSAGE_PREFIX"
   fi
 
   # materialize offline queries
@@ -48,13 +80,13 @@ for ds in $DATASETS; do
     for ((g = 0; g < NGPU && s + g < NSHARD; g++)); do
       idx=$((s + g))
       tag=$(printf '%02d' "$idx")
-      CUDA_VISIBLE_DEVICES=$g "$PY" -m tevatron.retriever.driver.encode \
+      CUDA_VISIBLE_DEVICES=$g "${ENC_CMD[@]}" \
         --output_dir "$RUN_DIR/encode" \
         --model_name_or_path "$RUN_DIR/train" \
         --dataset_shard_index $idx \
         --dataset_config "$ds" \
         --encode_output_path "$out/corpus_$ds.${tag}.pkl" \
-        --dataset_name=Tevatron/beir-corpus --passage_max_len=512 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true "--query_prefix=query: " "--passage_prefix=$passage_prefix" --fp16=true \
+        --dataset_name=Tevatron/beir-corpus --passage_max_len=512 --per_device_eval_batch_size=1024 --dataset_number_of_shards="$NSHARD" --attn_implementation=sdpa --pooling="$ENCODER_POOLING" --normalize=true "--query_prefix=$ENCODER_QUERY_PREFIX" "--passage_prefix=$passage_prefix" "${ENC_DTYPE_ARGS[@]}" \
         >"$RUN_DIR/logs/encode-$RUN_NAME-${ds}-shard${tag}-${SLURM_JOB_ID:-manual}.log" 2>&1 &
       wave+=($!)
     done
@@ -62,13 +94,13 @@ for ds in $DATASETS; do
   done
 
   # encode queries in a single shard since there are so few
-  CUDA_VISIBLE_DEVICES=0 "$PY" -m tevatron.retriever.driver.encode \
+  CUDA_VISIBLE_DEVICES=0 "${ENC_CMD[@]}" \
     --output_dir "$RUN_DIR/encode" \
     --model_name_or_path "$RUN_DIR/train" \
     --encode_is_query \
     --dataset_path "$out/queries.jsonl" \
     --encode_output_path "$out/query.pkl" \
-    --dataset_name=json --query_max_len=512 --per_device_eval_batch_size=1024 --attn_implementation=sdpa --bf16=false --pooling=mean --normalize=true "--query_prefix=query: " "--passage_prefix=$passage_prefix" --fp16=true \
+    --dataset_name=json --query_max_len=512 --per_device_eval_batch_size=1024 --attn_implementation=sdpa --pooling="$ENCODER_POOLING" --normalize=true "--query_prefix=$ENCODER_QUERY_PREFIX" "--passage_prefix=$passage_prefix" "${ENC_DTYPE_ARGS[@]}" \
     >"$RUN_DIR/logs/encode-$RUN_NAME-${ds}-query-${SLURM_JOB_ID:-manual}.log" 2>&1
 
   touch "$out/.done"
